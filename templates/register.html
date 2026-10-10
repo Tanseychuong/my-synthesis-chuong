@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Register - Grade Tracker</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
 
   <header class="site-header" id="site-header"></header>
@@ -19,20 +21,22 @@
 
       <form class="stack" onsubmit="handleRegister(event)" novalidate>
         <label>Username <input name="username" autocomplete="username" placeholder="3 to 30 letters or numbers"></label>
-        <label>Password <input name="password" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password"
+            placeholder="At least 6 characters"></label>
         <label>Confirm password <input name="confirm" type="password" autocomplete="new-password"></label>
         <button type="submit">Create account</button>
       </form>
 
-      <p class="muted">Already have an account? <a href="login.html">Log in</a></p>
+      <p class="muted">Already have an account? <a href="templates/login.html">Log in</a></p>
     </section>
   </main>
 
   <footer class="inner site-footer" id="site-footer"></footer>
 
-  <script src="js/ui.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/auth.js"></script>
-  <script src="js/register.js"></script>
+  <script src="servers/ui.js"></script>
+  <script src="servers/storage.js"></script>
+  <script src="servers/auth.js"></script>
+  <script src="servers/register.js"></script>
 </body>
+
 </html>
