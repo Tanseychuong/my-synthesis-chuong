@@ -1,14 +1,14 @@
 /* login.js - the login page */
 
 renderLayout("login");
-if (getSession()) location.href = "dashboard.html";     // already logged in
+if (getSession() !== null) location.href = "dashboard.html";     // already logged in
 
-async function handleLogin(event) {
-  event.preventDefault();
-  const f = event.target.elements;
+function handleLogin(event) {
+  event.preventDefault();                     // stop the browser from reloading the page
+  const form = event.target.elements;
 
-  const error = await loginUser(f.username.value, f.password.value);
-  if (error) {
+  const error = loginUser(form.username.value, form.password.value);
+  if (error !== "") {
     showMessage(error, "error");
     return;
   }

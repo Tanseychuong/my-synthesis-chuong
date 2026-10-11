@@ -1,36 +1,35 @@
 /* ==========================================================================
-   auth.js - register, log in, log out.
+   auth.js - register, log in and log out.
 
-   IMPORTANT: this is a login for convenience, not for security.
-   Everything lives in this browser's localStorage, so anyone who can open this
+   IMPORTANT: this login is for convenience, not for real security.
+   Everything is kept in this browser's localStorage, and anyone who can open the
    browser's developer tools can read it. A real login needs a server.
-   We never store the password itself, only a salted SHA-256 hash of it.
+   We never save the password itself. We save a "scrambled" version of it.
    ========================================================================== */
 
 function getUsers() {
   return readJson(USERS_KEY, {});
 }
 
-// The key of the logged-in account, or null
+// Gives back the key of the logged-in user, or null if nobody is logged in.
 function getSession() {
-  try {
-    const key = localStorage.getItem(SESSION_KEY);
-    return key && getUsers()[key] ? key : null;
-  } catch (error) {
-    return null;
-  }
+  const key = localStorage.getItem(SESSION_KEY);
+  const users = getUsers();
+  if (key !== null && users[key]) return key;
+  return null;
 }
 
+// The name to show for a user, written the way they typed it when they registered
 function displayName(key) {
-  const user = getUsers()[key];
-  return user ? user.username : key;
+  const users = getUsers();
+  if (users[key]) return users[key].username;
+  return key;
 }
 
-// Call at the top of every page that needs a login.
-// Returns the account key, or sends the visitor to the login page.
+// Every private page calls this first. No login? Go to the login page.
 function requireLogin() {
   const key = getSession();
-  if (!key) {
+  if (key === null) {
     location.href = "login.html";
     return null;
   }
@@ -42,60 +41,46 @@ function logout() {
   location.href = "login.html";
 }
 
-// ----- Password hashing (uses the browser's built-in crypto) -----
-
-function toHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+// Turn a password into a scrambled string of digits.
+// The same password always gives the same result, so we can compare at login.
+// This is simple on purpose, so it is easy to understand. It is not strong security.
+function scramble(password) {
+  let total = 0;
+  for (let i = 0; i < password.length; i++) {
+    total = (total * 31 + password.charCodeAt(i)) % 1000000007;
+  }
+  return String(total);
 }
 
-function makeSalt() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return toHex(bytes);
-}
-
-async function hashPassword(password, salt) {
-  const bytes = new TextEncoder().encode(salt + password);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return toHex(new Uint8Array(digest));
-}
-
-function cryptoAvailable() {
-  return window.crypto && window.crypto.subtle;
-}
-
-// ----- Register and log in. Each returns an error message, or "" when it worked. -----
-
-async function registerUser(username, password, confirm) {
+// Create an account. Gives back an error message, or "" when it worked.
+function registerUser(username, password, confirm) {
   username = username.trim();
 
-  if (!/^[A-Za-z0-9._-]{3,30}$/.test(username)) {
-    return "Username must be 3 to 30 characters: letters, numbers, dots, dashes or underscores.";
-  }
+  if (username.length < 3 || username.length > 30) return "Username must be 3 to 30 characters.";
+  if (username.indexOf(" ") !== -1) return "Username cannot contain spaces.";
   if (password.length < 6) return "Password must be at least 6 characters.";
   if (password !== confirm) return "The two passwords do not match.";
-  if (!cryptoAvailable()) return "This page must be opened from localhost, https or a local file to create accounts.";
 
   const users = getUsers();
   const key = userKey(username);
   if (users[key]) return "That username is already taken in this browser.";
 
-  const salt = makeSalt();
-  users[key] = { username: username, salt: salt, hash: await hashPassword(password, salt) };
-  if (!writeJson(USERS_KEY, users)) return "The account could not be saved in this browser.";
+  users[key] = { username: username, password: scramble(key + ":" + password) };
+  const worked = writeJson(USERS_KEY, users);
+  if (!worked) return "The account could not be saved in this browser.";
 
   localStorage.setItem(SESSION_KEY, key);     // log the new user in straight away
   return "";
 }
 
-async function loginUser(username, password) {
-  if (!cryptoAvailable()) return "This page must be opened from localhost, https or a local file to log in.";
-
+// Log in. Gives back an error message, or "" when it worked.
+function loginUser(username, password) {
   const key = userKey(username);
-  const user = getUsers()[key];
+  const users = getUsers();
+  const user = users[key];
 
-  // The same message for "no such user" and "wrong password", so it does not reveal which names exist
-  if (!user || (await hashPassword(password, user.salt)) !== user.hash) {
+  // One message for both problems, so it does not reveal which usernames exist
+  if (!user || user.password !== scramble(key + ":" + password)) {
     return "Wrong username or password.";
   }
 

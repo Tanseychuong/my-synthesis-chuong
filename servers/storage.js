@@ -1,45 +1,48 @@
 /* ==========================================================================
    storage.js - saving and loading with localStorage.
 
-   What is stored:
-     gradeTracker.users          all accounts   { "sam": { username, salt, hash } }
-     gradeTracker.session        who is logged in (the account key, e.g. "sam")
-     gradeTracker.data.<key>     one user's courses and grading scale
+   localStorage is a small storage box inside the browser. It keeps text, so we
+   turn our data into text with JSON.stringify() before saving, and back into
+   data with JSON.parse() when loading.
 
-   Each user has their own data key, so accounts never see each other's courses.
+   What we keep in it:
+     gradeTracker.users         all the accounts
+     gradeTracker.session       who is logged in right now
+     gradeTracker.data.<name>   one user's courses and grading scale
+
+   Every user has their own "data" key, so users never see each other's courses.
    ========================================================================== */
 
 const USERS_KEY = "gradeTracker.users";
 const SESSION_KEY = "gradeTracker.session";
 const DATA_PREFIX = "gradeTracker.data.";
 
-// An EXAMPLE grading scale. It is not any university's official scale.
-// Every new account starts with a copy and can change it on the "Grading scale" page.
-const EXAMPLE_SCALE = [
-  { min: 93, letter: "A",  points: 4.0 },
-  { min: 90, letter: "A-", points: 3.7 },
-  { min: 87, letter: "B+", points: 3.3 },
-  { min: 83, letter: "B",  points: 3.0 },
-  { min: 80, letter: "B-", points: 2.7 },
-  { min: 77, letter: "C+", points: 2.3 },
-  { min: 73, letter: "C",  points: 2.0 },
-  { min: 70, letter: "C-", points: 1.7 },
-  { min: 67, letter: "D+", points: 1.3 },
-  { min: 60, letter: "D",  points: 1.0 },
-  { min: 0,  letter: "F",  points: 0.0 }
+// The default grading scale. The letters and bands come from the Course GPA Tracker spreadsheet.
+// A grade at or above "min" gets that letter. The spreadsheet has no grade points,
+// so the points are the usual 4.0 steps. Students can change all of this on the Grading scale page.
+const DEFAULT_SCALE = [
+  { min: 80, letter: "A",  points: 4.0 },
+  { min: 75, letter: "B+", points: 3.5 },
+  { min: 70, letter: "B",  points: 3.0 },
+  { min: 65, letter: "C+", points: 2.5 },
+  { min: 60, letter: "C",  points: 2.0 },
+  { min: 55, letter: "D+", points: 1.5 },
+  { min: 50, letter: "D",  points: 1.0 },
+  { min: 0,  letter: "E",  points: 0.0 }
 ];
 
-// Read JSON from localStorage. If nothing is there (or it is damaged), use the fallback.
+// Read saved data. If nothing is saved (or it is damaged), give back the "fallback" instead.
 function readJson(key, fallback) {
   try {
     const text = localStorage.getItem(key);
-    return text ? JSON.parse(text) : fallback;
+    if (text === null) return fallback;
+    return JSON.parse(text);
   } catch (error) {
     return fallback;
   }
 }
 
-// Write JSON to localStorage. Returns false if the browser refused.
+// Save data. Gives back true if it worked and false if the browser refused.
 function writeJson(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -49,31 +52,47 @@ function writeJson(key, value) {
   }
 }
 
-// "Sam" and "sam" are the same account
+// "Sam" and "sam" are the same account, so we always use lower case for the key.
 function userKey(username) {
   return username.trim().toLowerCase();
 }
 
-// What a brand-new account starts with
-function defaultUserData() {
-  return {
-    nextId: 1,                      // used to give every record its own id
-    courses: [],                    // each course holds categories, each category holds assessments
-    scale: EXAMPLE_SCALE.map(row => ({ ...row }))
-  };
+// Make a fresh copy of the default scale, so changing one user's scale never changes the default.
+function copyDefaultScale() {
+  const copy = [];
+  for (let i = 0; i < DEFAULT_SCALE.length; i++) {
+    const row = DEFAULT_SCALE[i];
+    copy.push({ min: row.min, letter: row.letter, points: row.points });
+  }
+  return copy;
 }
 
+// A copy of a grading scale, with the highest grade first.
+// (sort() puts the rows in order. The little function says: bigger "min" comes first.)
+function sortedScale(scale) {
+  const copy = [];
+  for (let i = 0; i < scale.length; i++) copy.push(scale[i]);
+  copy.sort(function (a, b) { return b.min - a.min; });
+  return copy;
+}
+
+// Load one user's data. A brand-new user gets an empty list of courses and the default scale.
 function loadUserData(key) {
-  return Object.assign(defaultUserData(), readJson(DATA_PREFIX + key, {}));
+  const saved = readJson(DATA_PREFIX + key, null);
+  if (saved === null) {
+    return { nextId: 1, courses: [], scale: copyDefaultScale() };
+  }
+  if (!saved.scale) saved.scale = copyDefaultScale();
+  return saved;
 }
 
 function saveUserData(key, data) {
-  if (!writeJson(DATA_PREFIX + key, data)) {
-    showMessage("Your changes could not be saved in this browser.", "error");
-  }
+  const worked = writeJson(DATA_PREFIX + key, data);
+  if (!worked) showMessage("Your changes could not be saved in this browser.", "error");
 }
 
-// Gives a new record an id nobody else has
+// Give out a new id. Every course, category and assessment gets its own number,
+// so we can always tell them apart, even when two have the same name.
 function newId(data) {
   const id = data.nextId;
   data.nextId = id + 1;

@@ -1,14 +1,14 @@
 /* register.js - the register page */
 
 renderLayout("register");
-if (getSession()) location.href = "dashboard.html";     // already logged in
+if (getSession() !== null) location.href = "dashboard.html";     // already logged in
 
-async function handleRegister(event) {
+function handleRegister(event) {
   event.preventDefault();
-  const f = event.target.elements;
+  const form = event.target.elements;
 
-  const error = await registerUser(f.username.value, f.password.value, f.confirm.value);
-  if (error) {
+  const error = registerUser(form.username.value, form.password.value, form.confirm.value);
+  if (error !== "") {
     showMessage(error, "error");
     return;
   }

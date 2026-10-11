@@ -1,23 +1,27 @@
 /* ==========================================================================
-   course.js - one course: summary, categories, assessments, target calculator.
+   course.js - the page for one course.
+   Shows the grade so far, a score table, the categories with their assessments,
+   and the "What do I need to score?" calculator.
    The course comes from the address: course.html?id=3
    ========================================================================== */
 
 const currentUser = requireLogin();
-let data = null;
-let course = null;
-let editing = null;        // which row is being edited, e.g. "category-3" or "assessment-7"
+let data = null;           // this user's courses and grading scale
+let course = null;         // the course on this page
+let editing = null;        // the row being edited, like "category-3" or "assessment-7"
 
-if (currentUser) start();
+if (currentUser !== null) {
+  start();
+}
 
 function start() {
   renderLayout("dashboard");
   data = loadUserData(currentUser);
 
   const id = Number(new URLSearchParams(location.search).get("id"));
-  course = data.courses.find(c => c.id === id);
+  course = findById(data.courses, id);
 
-  if (!course) {
+  if (course === null) {
     flash("That course was not found.", "error");
     location.href = "dashboard.html";
     return;
@@ -30,40 +34,47 @@ function save() {
   saveUserData(currentUser, data);
 }
 
-function findCategory(id) {
-  return course.categories.find(c => c.id === id);
+// ----- Editing a row (a category or an assessment) -----
+
+function startEdit(what) {
+  editing = what;
+  render();
 }
 
-// ----- Editing rows -----
-
-function startEdit(what) { editing = what; render(); }
-function cancelEdit() { editing = null; render(); }
+function cancelEdit() {
+  editing = null;
+  render();
+}
 
 // ----- Course actions -----
 
 function saveCourse(event) {
   event.preventDefault();
-  const f = event.target.elements;
-  const name = f.courseName.value.trim();
-  const code = f.courseCode.value.trim();
-  const credits = parseNumber(f.credits.value);
-  const semester = f.semester.value.trim();
+  const form = event.target.elements;
+  const name = form.courseName.value.trim();
+  const code = form.courseCode.value.trim();
+  const credits = parseNumber(form.credits.value);
+  const courseSemester = form.semester.value.trim();
 
-  const problem = checkCourse(data, name, code, credits, semester, course.id);
-  if (problem) { showMessage(problem, "error"); return; }
+  const problem = checkCourse(data, name, code, credits, courseSemester, course.id);
+  if (problem !== "") {
+    showMessage(problem, "error");
+    return;
+  }
 
   course.name = name;
   course.code = code;
   course.credits = credits;
-  course.semester = semester;
+  course.semester = courseSemester;
   save();
   render("Course updated.");
 }
 
 function deleteCourse() {
-  if (!confirm("Delete " + course.name + "? Its categories and assessments will be deleted too.")) return;
+  const sure = confirm("Delete " + course.name + "? Its categories and assessments will be deleted too.");
+  if (!sure) return;
 
-  data.courses = data.courses.filter(c => c.id !== course.id);
+  data.courses = removeById(data.courses, course.id);
   save();
   flash("Course deleted.", "success");
   location.href = "dashboard.html?semester=" + encodeURIComponent(course.semester);
@@ -73,12 +84,15 @@ function deleteCourse() {
 
 function addCategory(event) {
   event.preventDefault();
-  const f = event.target.elements;
-  const name = f.catName.value.trim();
-  const weight = parseNumber(f.weight.value);
+  const form = event.target.elements;
+  const name = form.catName.value.trim();
+  const weight = parseNumber(form.weight.value);
 
   const problem = checkCategory(course, name, weight, null);
-  if (problem) { showMessage(problem, "error"); return; }
+  if (problem !== "") {
+    showMessage(problem, "error");
+    return;
+  }
 
   course.categories.push({ id: newId(data), name: name, weight: weight, assessments: [] });
   save();
@@ -86,12 +100,15 @@ function addCategory(event) {
 }
 
 function saveCategory(categoryId) {
-  const category = findCategory(categoryId);
+  const category = findById(course.categories, categoryId);
   const name = document.getElementById("edit-catName").value.trim();
   const weight = parseNumber(document.getElementById("edit-catWeight").value);
 
   const problem = checkCategory(course, name, weight, categoryId);
-  if (problem) { showMessage(problem, "error"); return; }
+  if (problem !== "") {
+    showMessage(problem, "error");
+    return;
+  }
 
   category.name = name;
   category.weight = weight;
@@ -101,15 +118,16 @@ function saveCategory(categoryId) {
 }
 
 function deleteCategory(categoryId) {
-  const category = findCategory(categoryId);
+  const category = findById(course.categories, categoryId);
   const count = category.assessments.length;
 
+  // Warn first if the category already has assessments in it
   if (count > 0) {
-    const ok = confirm(category.name + " has " + count + " recorded assessment(s). Delete the category and all of them?");
-    if (!ok) return;
+    const sure = confirm(category.name + " has " + count + " recorded assessment(s). Delete the category and all of them?");
+    if (!sure) return;
   }
 
-  course.categories = course.categories.filter(c => c.id !== categoryId);
+  course.categories = removeById(course.categories, categoryId);
   save();
   render("Category deleted.");
 }
@@ -118,49 +136,61 @@ function deleteCategory(categoryId) {
 
 function addAssessment(event, categoryId) {
   event.preventDefault();
-  const category = findCategory(categoryId);
-  const f = event.target.elements;
+  const category = findById(course.categories, categoryId);
+  const form = event.target.elements;
 
-  const name = f.title.value.trim();
-  const score = readScore(f.score.value);
-  const max = parseNumber(f.max.value);
+  const name = form.title.value.trim();
+  const score = readScore(form.score.value);          // null when the box is empty
+  const max = parseNumber(form.max.value);
 
   const problem = checkAssessment(name, score, max);
-  if (problem) { showMessage(problem, "error"); return; }
+  if (problem !== "") {
+    showMessage(problem, "error");
+    return;
+  }
 
-  category.assessments.push({ id: newId(data), name: name, score: score, maxScore: max, due: f.due.value });
+  category.assessments.push({
+    id: newId(data),
+    name: name,
+    score: score,
+    maxScore: max,
+    due: form.due.value
+  });
   save();
   render("Assessment added.");
 }
 
 function saveAssessment(categoryId, assessmentId) {
-  const category = findCategory(categoryId);
-  const a = category.assessments.find(item => item.id === assessmentId);
+  const category = findById(course.categories, categoryId);
+  const assessment = findById(category.assessments, assessmentId);
 
   const name = document.getElementById("edit-name").value.trim();
   const score = readScore(document.getElementById("edit-score").value);
   const max = parseNumber(document.getElementById("edit-max").value);
 
   const problem = checkAssessment(name, score, max);
-  if (problem) { showMessage(problem, "error"); return; }
+  if (problem !== "") {
+    showMessage(problem, "error");
+    return;
+  }
 
-  a.name = name;
-  a.score = score;
-  a.maxScore = max;
-  a.due = document.getElementById("edit-due").value;
+  assessment.name = name;
+  assessment.score = score;
+  assessment.maxScore = max;
+  assessment.due = document.getElementById("edit-due").value;
   editing = null;
   save();
   render("Assessment updated.");
 }
 
 function deleteAssessment(categoryId, assessmentId) {
-  const category = findCategory(categoryId);
-  category.assessments = category.assessments.filter(a => a.id !== assessmentId);
+  const category = findById(course.categories, categoryId);
+  category.assessments = removeById(category.assessments, assessmentId);
   save();
   render("Assessment deleted.");
 }
 
-// ----- Target calculator -----
+// ----- "What do I need to score?" -----
 
 function calculateTarget() {
   const target = parseNumber(document.getElementById("target").value);
@@ -173,7 +203,7 @@ function calculateTarget() {
   box.textContent = targetMessage(course, target);
 }
 
-// ----- Page -----
+// ----- Drawing the page -----
 
 function render(successText) {
   document.getElementById("app").innerHTML = courseView();
@@ -182,38 +212,47 @@ function render(successText) {
 }
 
 function courseView() {
-  const summary = courseSummary(course);
-  const grade = gradeFor(summary.projected, data.scale);
+  const summary = courseSummary(course, {});
+  const grade = gradeFor(summary.percent, data.scale);
 
-  const currentBox = summary.current === null
-    ? `<div class="big">–</div><p class="muted">No scores recorded yet.</p>`
-    : `<div class="big">${pct(summary.current)}</div>
-       <p class="muted">Based on ${summary.scoredCount} of ${summary.categoryCount} categories that have scores.</p>`;
-
-  let gradeBox;
-  if (grade) {
-    const title = summary.kind === "final" ? "Final calculated grade" : "Projected final grade";
-    const note = summary.kind === "projected"
-      ? "Some assessments are still pending, so this assumes you keep scoring at your current average in each category. "
-      : "";
-    gradeBox = `<div class="big">${pct(summary.projected)}</div>
-      <p>${title}: <strong>${esc(grade.letter)}</strong>, ${num(grade.points)} grade points</p>
-      <p class="muted small-text">${note}This is an estimate, not an official grade.</p>`;
+  // Box 1: the course grade, with a label saying how sure we are
+  let gradeBox = "";
+  if (grade !== null) {
+    gradeBox = `<div class="big">${pct(summary.percent)}</div>
+      <p><span class="badge ${summary.status}">${summary.word}</span>
+         ${summary.label}: <strong>${esc(grade.letter)}</strong>, ${num(grade.points)} grade points</p>
+      <p class="muted small-text">${esc(summary.note)} This is an estimate, not an official grade.</p>`;
   } else {
-    gradeBox = `<div class="big">–</div><p>${esc(summary.problem)}</p>`;
+    gradeBox = `<div class="big">–</div><p>${esc(summary.note)}</p>`;
   }
 
-  const weightsBox = `<div class="big">${num(summary.total)}%</div>
-    <div class="status ${summary.weightsOk ? "good" : "warn"}">
-      ${summary.weightsOk
-        ? "Weights total 100%."
-        : "Weights must total 100% to get a projected grade." + (summary.remaining > 0 ? " " + num(summary.remaining) + "% still to allocate." : "")}
-    </div>`;
+  // Box 2: how much of the course has been graded
+  const progressBox = `<div class="big">${num(summary.gradedWeight)}%</div>
+    <progress max="100" value="${summary.gradedWeight}"></progress>
+    <p class="muted small-text">of the course is graded so far
+      (${summary.gradedCategories} of ${summary.categoryCount} categories have scores).</p>`;
 
-  const categories = course.categories.length === 0
-    ? `<div class="card empty"><p><strong>No categories yet.</strong></p>
-       <p>Add a category such as Assignments or Final exam below, and give it a weight.</p></div>`
-    : course.categories.map(categoryHtml).join("");
+  // Box 3: do the category weights add up to 100?
+  let weightsText = "Weights total 100%.";
+  let weightsClass = "good";
+  if (summary.totalWeight !== 100) {
+    weightsClass = "warn";
+    weightsText = "Weights should total 100%.";
+    if (summary.remaining > 0) weightsText += " " + num(summary.remaining) + "% still to allocate.";
+  }
+  const weightsBox = `<div class="big">${num(summary.totalWeight)}%</div>
+    <div class="status ${weightsClass}">${weightsText}</div>`;
+
+  // The categories
+  let categories = "";
+  if (course.categories.length === 0) {
+    categories = `<div class="card empty"><p><strong>No categories yet.</strong></p>
+      <p>Add a category such as Assignments or Final exam below, and give it a weight.</p></div>`;
+  } else {
+    for (let i = 0; i < course.categories.length; i++) {
+      categories += categoryHtml(course.categories[i]);
+    }
+  }
 
   return `
     <p><a class="button secondary small" href="dashboard.html?semester=${encodeURIComponent(course.semester)}">Back to dashboard</a></p>
@@ -226,10 +265,12 @@ function courseView() {
     </div>
 
     <section class="card summary">
-      <div><p class="muted">Current performance</p>${currentBox}</div>
       <div><p class="muted">Course grade</p>${gradeBox}</div>
+      <div><p class="muted">Progress</p>${progressBox}</div>
       <div><p class="muted">Category weights</p>${weightsBox}</div>
     </section>
+
+    ${breakdownHtml()}
 
     <section class="card">
       <details>
@@ -269,12 +310,56 @@ function courseView() {
   `;
 }
 
-function categoryHtml(category) {
-  const stats = categoryStats(category);
-  const isEditing = editing === "category-" + category.id;
+// The score table, with the same columns as the tracker spreadsheet
+function breakdownHtml() {
+  if (course.categories.length === 0) return "";
 
-  let head;
-  if (isEditing) {
+  const table = courseBreakdown(course, {});
+  let rows = "";
+  for (let i = 0; i < table.rows.length; i++) {
+    const row = table.rows[i];
+
+    let possible = "–";
+    let earned = "–";
+    let finalScore = "–";
+    if (row.percent !== null) {
+      possible = num(row.possible);
+      earned = num(row.earned);
+      finalScore = num(row.finalScore);
+    }
+
+    rows += `<tr>
+      <td>${esc(row.name)}</td>
+      <td>${num(row.weight)}%</td>
+      <td>${possible}</td>
+      <td>${earned}</td>
+      <td>${pct(row.percent)}</td>
+      <td>${finalScore}</td>
+    </tr>`;
+  }
+
+  return `<section class="card">
+    <h3>Score breakdown</h3>
+    <p class="muted small-text">Each category's percentage is points earned divided by points possible.
+      Multiply it by the category's weight to get its final score. Categories with no scores yet show a dash.</p>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>Category</th><th>Weight</th><th>Total score possible</th><th>My score</th><th>Percent</th><th>Final score</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr>
+        <th>Total</th><th>${num(table.weightSum)}%</th><th></th><th></th><th></th><th>${num(table.finalScoreSum)}</th>
+      </tr></tfoot>
+    </table></div>
+  </section>`;
+}
+
+// One category: its title, its table of assessments, and a form to add another
+function categoryHtml(category) {
+  const stats = categoryStats(category, {});
+
+  let head = "";
+  if (editing === "category-" + category.id) {
     head = `<div class="row-edit">
       <label>Category name <input id="edit-catName" value="${esc(category.name)}"></label>
       <label>Weight (%) <input id="edit-catWeight" type="number" step="any" min="0" max="100" value="${category.weight}"></label>
@@ -284,11 +369,13 @@ function categoryHtml(category) {
       </div>
     </div>`;
   } else {
+    let plural = "s";
+    if (stats.counted === 1) plural = "";
     head = `<div class="category-head">
       <div>
         <h3>${esc(category.name)}</h3>
         <p class="muted">Worth ${num(category.weight)}% of the course grade.
-          Average: <strong>${pct(stats.average)}</strong> from ${stats.counted} graded assessment${stats.counted === 1 ? "" : "s"}.</p>
+          Average: <strong>${pct(stats.average)}</strong> from ${stats.counted} graded assessment${plural}.</p>
       </div>
       <div class="actions">
         <button type="button" class="secondary small" onclick="startEdit('category-${category.id}')">Edit category</button>
@@ -297,13 +384,17 @@ function categoryHtml(category) {
     </div>`;
   }
 
-  const rows = category.assessments.map(a => assessmentRowHtml(category, a)).join("");
-  const table = category.assessments.length === 0
-    ? `<p class="muted">No assessments yet. Add the first one below.</p>`
-    : `<div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Score</th><th>Out of</th><th>Percent</th><th>Due</th><th>Status</th><th></th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>`;
+  let table = '<p class="muted">No assessments yet. Add the first one below.</p>';
+  if (category.assessments.length > 0) {
+    let rows = "";
+    for (let i = 0; i < category.assessments.length; i++) {
+      rows += assessmentRowHtml(category, category.assessments[i]);
+    }
+    table = `<div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th>Score</th><th>Out of</th><th>Percent</th><th>Due</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }
 
   return `<section class="card">
     ${head}
@@ -318,11 +409,15 @@ function categoryHtml(category) {
   </section>`;
 }
 
+// One row of the assessments table. It turns into input boxes while being edited.
 function assessmentRowHtml(category, a) {
   if (editing === "assessment-" + a.id) {
+    let scoreValue = "";
+    if (a.score !== null) scoreValue = a.score;
+
     return `<tr>
       <td><input id="edit-name" value="${esc(a.name)}" aria-label="Assessment name"></td>
-      <td><input id="edit-score" type="number" step="any" min="0" value="${a.score === null ? "" : a.score}" placeholder="Pending" aria-label="Score earned"></td>
+      <td><input id="edit-score" type="number" step="any" min="0" value="${scoreValue}" placeholder="Pending" aria-label="Score earned"></td>
       <td><input id="edit-max" type="number" step="any" min="0" value="${a.maxScore}" aria-label="Maximum score"></td>
       <td></td>
       <td><input id="edit-due" type="date" value="${esc(a.due || "")}" aria-label="Due date"></td>
@@ -334,13 +429,23 @@ function assessmentRowHtml(category, a) {
     </tr>`;
   }
 
-  const status = isGraded(a) ? "graded" : "pending";
+  let status = "pending";
+  let score = "–";
+  let percent = "–";
+  if (isGraded(a)) {
+    status = "graded";
+    score = a.score;
+    percent = pct(a.score / a.maxScore * 100);
+  }
+  let due = "–";
+  if (a.due) due = esc(a.due);
+
   return `<tr>
     <td>${esc(a.name)}</td>
-    <td>${isGraded(a) ? a.score : "–"}</td>
+    <td>${score}</td>
     <td>${a.maxScore}</td>
-    <td>${isGraded(a) ? pct((a.score / a.maxScore) * 100) : "–"}</td>
-    <td>${a.due ? esc(a.due) : "–"}</td>
+    <td>${percent}</td>
+    <td>${due}</td>
     <td><span class="badge ${status}">${status}</span></td>
     <td><div class="actions">
       <button type="button" class="secondary small" onclick="startEdit('assessment-${a.id}')">Edit</button>

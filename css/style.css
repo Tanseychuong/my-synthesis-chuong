@@ -203,3 +203,13 @@ label.check { flex-direction: row; align-items: center; font-weight: 400; }
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 .page-title select { font-size: 1.1rem; font-weight: 600; }
+
+/* ===== Score breakdown table: total row ===== */
+tfoot th { color: var(--ink); font-size: 1rem; border-top: 2px solid var(--line); border-bottom: 0; }
+
+/* ===== Grade status badges and progress bars ===== */
+.badge.sofar { background: var(--warn-bg); color: var(--warn); }
+.badge.projected { background: #e3eefb; color: #174a85; }
+.badge.final { background: var(--good-bg); color: #145235; }
+.badge.none { background: #e4e8ee; color: #4b5563; }
+progress { width: 100%; height: 10px; accent-color: var(--primary); }
